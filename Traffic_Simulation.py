@@ -3,6 +3,7 @@ import time
 import threading
 import pygame
 import sys
+from Vehicle_Detection import Vehicle_Detection
 
 # Default values of signal timers
 defaultGreen = {0:10, 1:10, 2:10, 3:10}
