@@ -3,7 +3,7 @@ import time
 import threading
 import pygame
 import sys
-from Vehicle_Detection import Vehicle_Detection
+from Vehicle_Detection import image_uploader,vehicle_counter
 
 # Default values of signal timers
 defaultGreen = {0:10, 1:10, 2:10, 3:10}
@@ -117,6 +117,12 @@ class Vehicle(pygame.sprite.Sprite):
                 self.crossed = 1
             if((self.y>=self.stop or self.crossed == 1 or (currentGreen==3 and currentYellow==0)) and (self.index==0 or self.y>(vehicles[self.direction][self.lane][self.index-1].y + vehicles[self.direction][self.lane][self.index-1].image.get_rect().height + movingGap))):                
                 self.y -= self.speed
+# Function to to count vehicles at a light
+def count_waiting_vehicles(direction):
+    count = 0
+    for lane in range(3):
+        count += len(vehicles[direction][lane])
+    return count
 
 # Initialization of signals with default values
 def initialize():
@@ -132,27 +138,35 @@ def initialize():
 
 def repeat():
     global currentGreen, currentYellow, nextGreen
-    while(signals[currentGreen].green>0):   # while the timer of current green signal is not zero
+
+    # Adjusting green light duration based of vehicle count
+    waiting_vehicles = count_waiting_vehicles(directionNumbers[currentGreen])
+    signals[currentGreen].green = max(5, min(30, waiting_vehicles * 1))
+
+    while(signals[currentGreen].green > 0):   # while the timer of current green signal is not zero
         updateValues()
         time.sleep(1)
+
     currentYellow = 1   # set yellow signal on
     # reset stop coordinates of lanes and vehicles 
-    for i in range(0,3):
+    for i in range(3):
         for vehicle in vehicles[directionNumbers[currentGreen]][i]:
             vehicle.stop = defaultStop[directionNumbers[currentGreen]]
-    while(signals[currentGreen].yellow>0):  # while the timer of current yellow signal is not zero
+
+    while signals[currentGreen].yellow > 0:  # while the timer of current yellow signal is not zero
         updateValues()
         time.sleep(1)
+
     currentYellow = 0   # set yellow signal off
     
-     # reset all signal times of current signal to default times
+    # reset all signal times of current signal to default times
     signals[currentGreen].green = defaultGreen[currentGreen]
     signals[currentGreen].yellow = defaultYellow
     signals[currentGreen].red = defaultRed
        
     currentGreen = nextGreen # set next signal as green signal
     nextGreen = (currentGreen+1)%noOfSignals    # set next green signal
-    signals[nextGreen].red = signals[currentGreen].yellow+signals[currentGreen].green    # set the red time of next to next signal as (yellow time + green time) of next signal
+    signals[nextGreen].red = max(5, defaultRed - signals[currentGreen].green)  
     repeat()  
 
 # Update values of the signal timers after every second
@@ -248,5 +262,7 @@ class Main:
             vehicle.move()
         pygame.display.update()
 
-
-Main()
+if __name__ =='__main__':
+    image_uploader()
+    vehicle_counter()
+    Main()
