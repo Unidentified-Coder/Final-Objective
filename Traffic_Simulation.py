@@ -8,7 +8,7 @@ from Vehicle_Detection import image_uploader,vehicle_counter
 # Default values of signal timers
 defaultGreen = {0:10, 1:10, 2:10, 3:10}
 defaultRed = 150
-defaultYellow = 5
+defaultYellow = 2
 
 signals = []
 noOfSignals = 4
@@ -156,7 +156,7 @@ def repeat():
     while signals[currentGreen].yellow > 0:  # while the timer of current yellow signal is not zero
         updateValues()
         time.sleep(1)
-
+ 
     currentYellow = 0   # set yellow signal off
     
     # reset all signal times of current signal to default times
@@ -197,7 +197,7 @@ def generateVehicles():
         elif(temp<dist[3]):
             direction_number = 3
         Vehicle(lane_number, vehicleTypes[vehicle_type], direction_number, directionNumbers[direction_number])
-        time.sleep(1)
+        time.sleep(1.5)
 
 class Main:
     thread1 = threading.Thread(name="initialization",target=initialize, args=())    # initialization
@@ -263,6 +263,6 @@ class Main:
         pygame.display.update()
 
 if __name__ =='__main__':
-    image_uploader()
-    vehicle_counter()
+    # image_uploader()
+    # vehicle_counter()
     Main()
