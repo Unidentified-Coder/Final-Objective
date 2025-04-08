@@ -5,25 +5,34 @@ import pygame
 import sys
 from Vehicle_Detection import image_uploader, vehicle_counter
 
+# ------------------------------
+# CONFIGURATION & GLOBAL VARIABLES
+# ------------------------------
+
 # Default timer values
 defaultGreen = {0: 10, 1: 10, 2: 10, 3: 10}
 defaultRed = 150
-defaultYellow = 5  # Change this to 2 if desired (e.g., defaultYellow = 2)
+defaultYellow = 2
 
 signals = []
 noOfSignals = 4
 
-# --- Paired signals setup ---
-# Using original mapping:
-# index 0: right, index 1: down, index 2: left, index 3: up
-# We want east–west (right & left) to move together and north–south (down & up) to move together.
+# Paired signals setup:
+# Original mapping: 0: right, 1: down, 2: left, 3: up
+# We group:
+#   Pair 0 (east–west): right (index 0) and left (index 2)
+#   Pair 1 (north–south): down (index 1) and up (index 3)
 pairMapping = {
-    0: [0, 2],  # Pair 0: east–west (right and left)
-    1: [1, 3]   # Pair 1: north–south (down and up)
+    0: [0, 2], 
+    1: [1, 3]
 }
-activePair = 0  # Start with east–west active
+activePair = 0  # start with east–west active
 
-# Mapping for directions (unchanged)
+# Global phase for the active pair. For vehicles in the active directions, this tells them if the light is green or yellow.
+# (For inactive directions, the phase is always "red".)
+currentPhase = "green"  # will be updated within the signal cycle
+
+# Direction mapping used in vehicles (unchanged)
 directionNumbers = {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
 
 # Vehicle speeds and starting coordinates
@@ -41,27 +50,38 @@ y = {
     'up': [800, 800, 800]
 }
 
+# Vehicles structure: each direction has 3 lanes (list indexes 0,1,2); 'crossed' flag is ignored here.
 vehicles = {
-    'right': {0: [], 1: [], 2: [], 'crossed': 0},
-    'down':  {0: [], 1: [], 2: [], 'crossed': 0},
-    'left':  {0: [], 1: [], 2: [], 'crossed': 0},
-    'up':    {0: [], 1: [], 2: [], 'crossed': 0}
+    'right': {0: [], 1: [], 2: []},
+    'down':  {0: [], 1: [], 2: []},
+    'left':  {0: [], 1: [], 2: []},
+    'up':    {0: [], 1: [], 2: []}
 }
 vehicleTypes = {0: 'car', 1: 'bus', 2: 'truck', 3: 'bike'}
 
-# Signal image coordinates on screen
+# Coordinates for signals on screen
 signalCoods = [(530,230), (810,230), (810,570), (530,570)]
 signalTimerCoods = [(530,210), (810,210), (810,550), (530,550)]
 
-# Stop line and default stop positions (not used on green phase now)
-stopLines = {'right': 590, 'down': 330, 'left': 800, 'up': 535}
-defaultStop = {'right': 580, 'down': 320, 'left': 810, 'up': 545}
+# Stop lines (the line vehicles must not cross in red/yellow)
+stopLines = {
+    'right': 590,  # vehicles moving right must stop before x reaches 590
+    'down':  330,  # vehicles moving down must stop before y reaches 330
+    'left':  800,  # vehicles moving left must not go below x = 800 (they approach from the right)
+    'up':    535   # vehicles moving up must not go above y = 535
+}
+# (Adjust these values to match your intersection.)
 
-stoppingGap = 15  # gap between vehicles when stopping
-movingGap = 15    # gap between vehicles when moving
+# Gap values (in pixels) to allow between vehicles
+stoppingGap = 15    # gap when vehicles are stopped
+movingGap = 15      # minimal gap when moving
 
 pygame.init()
 simulation = pygame.sprite.Group()
+
+# ------------------------------
+# CLASS DEFINITIONS
+# ------------------------------
 
 class TrafficSignal:
     def __init__(self, red, yellow, green):
@@ -78,117 +98,166 @@ class Vehicle(pygame.sprite.Sprite):
         self.speed = speeds[vehicleClass]
         self.direction_number = direction_number
         self.direction = direction
+        # The spawn coordinate for this vehicle
         self.x = x[direction][lane]
         self.y = y[direction][lane]
-        self.crossed = 0
+        # crossed == 0 means not yet entered the intersection (has not passed the stop line)
+        # crossed == 1 means vehicle has entered the intersection.
+        self.crossed = 0  
+        # Append self to the appropriate lane for gap checking.
         vehicles[direction][lane].append(self)
-        self.index = len(vehicles[direction][lane]) - 1
+        self.index = len(vehicles[direction][lane]) - 1  # position in the lane
         path = "images/" + direction + "/" + vehicleClass + ".png"
         self.image = pygame.image.load(path)
-
-        # Determine the stop coordinate when created
-        if len(vehicles[direction][lane]) > 1 and vehicles[direction][lane][self.index - 1].crossed == 0:
-            if direction == 'right':
-                self.stop = vehicles[direction][lane][self.index - 1].stop - vehicles[direction][lane][self.index - 1].image.get_rect().width - stoppingGap
-            elif direction == 'left':
-                self.stop = vehicles[direction][lane][self.index - 1].stop + vehicles[direction][lane][self.index - 1].image.get_rect().width + stoppingGap
-            elif direction == 'down':
-                self.stop = vehicles[direction][lane][self.index - 1].stop - vehicles[direction][lane][self.index - 1].image.get_rect().height - stoppingGap
-            elif direction == 'up':
-                self.stop = vehicles[direction][lane][self.index - 1].stop + vehicles[direction][lane][self.index - 1].image.get_rect().height + stoppingGap
-        else:
-            self.stop = defaultStop[direction]
-            
-        # Adjust starting coordinates to avoid overlap
+        
+        # Adjust spawn positions slightly so vehicles do not overlap.
         if direction == 'right':
-            temp = self.image.get_rect().width + stoppingGap    
-            x[direction][lane] -= temp
+            delta = self.image.get_rect().width + stoppingGap
+            x[direction][lane] -= delta
         elif direction == 'left':
-            temp = self.image.get_rect().width + stoppingGap
-            x[direction][lane] += temp
+            delta = self.image.get_rect().width + stoppingGap
+            x[direction][lane] += delta
         elif direction == 'down':
-            temp = self.image.get_rect().height + stoppingGap
-            y[direction][lane] -= temp
+            delta = self.image.get_rect().height + stoppingGap
+            y[direction][lane] -= delta
         elif direction == 'up':
-            temp = self.image.get_rect().height + stoppingGap
-            y[direction][lane] += temp
+            delta = self.image.get_rect().height + stoppingGap
+            y[direction][lane] += delta
+            
         simulation.add(self)
 
     def render(self, screen):
         screen.blit(self.image, (self.x, self.y))
 
+    def gapAvailable(self):
+        """Check if the gap to the preceding vehicle is sufficient.
+           Returns True if no vehicle ahead or gap >= movingGap; otherwise False.
+        """
+        if self.index == 0:
+            return True  # first vehicle in lane—nothing ahead
+        # Get the preceding vehicle in the same lane & direction
+        prev = vehicles[self.direction][self.lane][self.index - 1]
+        if self.direction == 'right':
+            gap = prev.x - (self.x + self.image.get_rect().width)
+        elif self.direction == 'left':
+            gap = self.x - (prev.x + prev.image.get_rect().width)
+        elif self.direction == 'down':
+            gap = prev.y - (self.y + self.image.get_rect().height)
+        elif self.direction == 'up':
+            gap = self.y - (prev.y + prev.image.get_rect().height)
+        return gap >= movingGap
+
     def move(self):
-        # Get list of directions that are active (green/yellow)
+        global currentPhase
+        
+        # Determine if this vehicle's direction is currently active (its signal is controlled by activePair)
         activeDirections = [directionNumbers[idx] for idx in pairMapping[activePair]]
-        # Only move if this vehicle's direction is in the active group.
-        if self.direction in activeDirections:
-            # Check if vehicle has crossed its stop line to update its "crossed" status.
-            if self.direction == 'right':
-                if self.crossed == 0 and self.x + self.image.get_rect().width > stopLines[self.direction]:
+        # For vehicles in inactive directions, phase is considered "red"
+        phase = currentPhase if (self.direction in activeDirections) else "red"
+        
+        # --- BEFORE THE INTERSECTION (has not yet crossed) ---
+        if self.crossed == 0:
+            # If the phase is green, the vehicle is allowed to cross.
+            if phase == "green":
+                # If gap allows, move forward.
+                if self.gapAvailable():
+                    self.advance()
+                # Check if we now cross the stop line. (For each direction, use the appropriate coordinate.)
+                if self.direction == 'right' and (self.x + self.image.get_rect().width >= stopLines['right']):
                     self.crossed = 1
-                # On green, simply move forward if there's sufficient gap to the preceding vehicle.
-                if self.index == 0 or self.x + self.image.get_rect().width < (vehicles[self.direction][self.lane][self.index - 1].x - movingGap):
-                    self.x += self.speed
-            elif self.direction == 'down':
-                if self.crossed == 0 and self.y + self.image.get_rect().height > stopLines[self.direction]:
+                elif self.direction == 'down' and (self.y + self.image.get_rect().height >= stopLines['down']):
                     self.crossed = 1
-                if self.index == 0 or self.y + self.image.get_rect().height < (vehicles[self.direction][self.lane][self.index - 1].y - movingGap):
-                    self.y += self.speed
-            elif self.direction == 'left':
-                if self.crossed == 0 and self.x < stopLines[self.direction]:
+                elif self.direction == 'left' and (self.x <= stopLines['left']):
                     self.crossed = 1
-                if self.index == 0 or self.x > (vehicles[self.direction][self.lane][self.index - 1].x + vehicles[self.direction][self.lane][self.index - 1].image.get_rect().width + movingGap):
-                    self.x -= self.speed
-            elif self.direction == 'up':
-                if self.crossed == 0 and self.y < stopLines[self.direction]:
+                elif self.direction == 'up' and (self.y <= stopLines['up']):
                     self.crossed = 1
-                if self.index == 0 or self.y > (vehicles[self.direction][self.lane][self.index - 1].y + vehicles[self.direction][self.lane][self.index - 1].image.get_rect().height + movingGap):
-                    self.y -= self.speed
-        # When not active, vehicles remain still.
+                    
+            # For red or yellow phases, the vehicle should approach the stop line but not cross.
+            else:
+                # Move forward only if not already at (or past) the stop line.
+                if self.direction == 'right':
+                    if self.x + self.image.get_rect().width < stopLines['right']:
+                        if self.gapAvailable():
+                            self.advance()
+                        # Clamp the position so that it does not cross the stop line.
+                        if self.x + self.image.get_rect().width > stopLines['right']:
+                            self.x = stopLines['right'] - self.image.get_rect().width
+                elif self.direction == 'down':
+                    if self.y + self.image.get_rect().height < stopLines['down']:
+                        if self.gapAvailable():
+                            self.advance()
+                        if self.y + self.image.get_rect().height > stopLines['down']:
+                            self.y = stopLines['down'] - self.image.get_rect().height
+                elif self.direction == 'left':
+                    if self.x > stopLines['left']:
+                        if self.gapAvailable():
+                            self.advance()
+                        if self.x < stopLines['left']:
+                            self.x = stopLines['left']
+                elif self.direction == 'up':
+                    if self.y > stopLines['up']:
+                        if self.gapAvailable():
+                            self.advance()
+                        if self.y < stopLines['up']:
+                            self.y = stopLines['up']
+        else:
+            # --- INSIDE THE INTERSECTION ---
+            # If the vehicle has already crossed, it continues moving regardless of signal.
+            self.advance()
 
-# (Optional helper if needed)
-def count_waiting_vehicles(direction):
-    count = 0
-    for lane in range(3):
-        count += len(vehicles[direction][lane])
-    return count
+    def advance(self):
+        """Advance the vehicle by its speed along its direction."""
+        if self.direction == 'right':
+            self.x += self.speed
+        elif self.direction == 'down':
+            self.y += self.speed
+        elif self.direction == 'left':
+            self.x -= self.speed
+        elif self.direction == 'up':
+            self.y -= self.speed
 
-# Initialize signals for each direction
-def initialize():
-    # Create signals in the order: 0:right, 1:down, 2:left, 3:up.
-    ts0 = TrafficSignal(0, defaultYellow, defaultGreen[0])    # right
+# ------------------------------
+# SIGNAL MANAGEMENT & VEHICLE GENERATION
+# ------------------------------
+
+def initializeSignals():
+    # Create signals in order: index 0: right, 1: down, 2: left, 3: up.
+    ts0 = TrafficSignal(0, defaultYellow, defaultGreen[0])   # right
     signals.append(ts0)
     ts1 = TrafficSignal(defaultRed, defaultYellow, defaultGreen[1])  # down
     signals.append(ts1)
-    ts2 = TrafficSignal(0, defaultYellow, defaultGreen[2])    # left
+    ts2 = TrafficSignal(0, defaultYellow, defaultGreen[2])   # left
     signals.append(ts2)
     ts3 = TrafficSignal(defaultRed, defaultYellow, defaultGreen[3])  # up
     signals.append(ts3)
-    repeat()
+    # Start the signal cycle in a separate thread.
+    threading.Thread(target=repeat, daemon=True).start()
 
-# Signal cycle: alternate between active pairs.
 def repeat():
-    global activePair
-    # For the active pair, set signals to green phase; for the inactive pair, set red.
+    global activePair, currentPhase
+    # For active pair directions, set them to a starting green phase.
     for idx in pairMapping[activePair]:
         signals[idx].green = defaultGreen[idx]
         signals[idx].yellow = defaultYellow
         signals[idx].red = 0
+    # For the inactive pair, force red.
     inactivePair = 1 - activePair
     for idx in pairMapping[inactivePair]:
         signals[idx].red = defaultRed
         signals[idx].green = 0
         signals[idx].yellow = 0
 
-    # GREEN phase: countdown for active pair
-    t = defaultGreen[pairMapping[activePair][0]]  # assuming same green time for both signals in pair
+    # --- GREEN PHASE ---
+    currentPhase = "green"
+    t = defaultGreen[pairMapping[activePair][0]]
     while t > 0:
         for idx in pairMapping[activePair]:
             signals[idx].green = t
         time.sleep(1)
         t -= 1
 
-    # YELLOW phase: active pair goes yellow
+    # --- YELLOW PHASE ---
+    currentPhase = "yellow"
     t = defaultYellow
     for idx in pairMapping[activePair]:
         signals[idx].yellow = t
@@ -199,92 +268,99 @@ def repeat():
         time.sleep(1)
         t -= 1
 
-    # After yellow, reset active pair to red and restore defaults.
+    # End of active phase: reset active pair to defaults (red)
     for idx in pairMapping[activePair]:
         signals[idx].red = defaultRed
         signals[idx].green = defaultGreen[idx]
         signals[idx].yellow = defaultYellow
 
-    # Switch active pair
+    # Switch active pair; the new active pair will have its phase set when its cycle begins.
     activePair = inactivePair
-    repeat()
+    # Set currentPhase for new active pair as green for the next cycle.
+    currentPhase = "green"
+    repeat()  # Recursively continue the cycle.
 
-# In this paired system, updateValues() is not used.
-def updateValues():
-    pass
-
-# Generate vehicles continuously (adjust sleep for spawn rate)
 def generateVehicles():
     while True:
-        vehicle_type = random.randint(0, 3)
-        lane_number = random.randint(1, 2)
-        temp = random.randint(0, 99)
+        vehicle_type = random.randint(0,3)
+        lane_number = random.randint(1,2)
+        dice = random.randint(0,99)
         direction_number = 0
-        dist = [25, 50, 75, 100]
-        if temp < dist[0]:
+        # Use probability ranges to assign direction based on dice roll.
+        if dice < 25:
             direction_number = 0
-        elif temp < dist[1]:
+        elif dice < 50:
             direction_number = 1
-        elif temp < dist[2]:
+        elif dice < 75:
             direction_number = 2
-        elif temp < dist[3]:
+        else:
             direction_number = 3
         Vehicle(lane_number, vehicleTypes[vehicle_type], direction_number, directionNumbers[direction_number])
-        time.sleep(1)  # Adjust this if you need to spawn vehicles faster
+        time.sleep(1)  # Adjust spawn rate as needed
+
+# ------------------------------
+# MAIN LOOP & RENDERING
+# ------------------------------
 
 class Main:
-    thread1 = threading.Thread(name="initialization", target=initialize, args=())
-    thread1.daemon = True
-    thread1.start()
+    def __init__(self):
+        # Start the signal initialization thread.
+        threading.Thread(target=initializeSignals, daemon=True).start()
+        # Start vehicle generation thread.
+        threading.Thread(target=generateVehicles, daemon=True).start()
+        self.run()
 
-    black = (0, 0, 0)
-    white = (255, 255, 255)
-    screenWidth = 1400
-    screenHeight = 800
-    screenSize = (screenWidth, screenHeight)
+    def run(self):
+        black = (0, 0, 0)
+        white = (255, 255, 255)
+        screenWidth = 1400
+        screenHeight = 800
+        screenSize = (screenWidth, screenHeight)
 
-    background = pygame.image.load('images/intersection.png')
-    screen = pygame.display.set_mode(screenSize)
-    pygame.display.set_caption("SIMULATION")
+        background = pygame.image.load('images/intersection.png')
+        screen = pygame.display.set_mode(screenSize)
+        pygame.display.set_caption("SIMULATION")
 
-    redSignal = pygame.image.load('images/signals/red.png')
-    yellowSignal = pygame.image.load('images/signals/yellow.png')
-    greenSignal = pygame.image.load('images/signals/green.png')
-    font = pygame.font.Font(None, 30)
+        redSignal = pygame.image.load('images/signals/red.png')
+        yellowSignal = pygame.image.load('images/signals/yellow.png')
+        greenSignal = pygame.image.load('images/signals/green.png')
+        font = pygame.font.Font(None, 30)
 
-    thread2 = threading.Thread(name="generateVehicles", target=generateVehicles, args=())
-    thread2.daemon = True
-    thread2.start()
+        while True:
+            for event in pygame.event.get():
+                if event.type == pygame.QUIT:
+                    sys.exit()
 
-    while True:
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                sys.exit()
-
-        screen.blit(background, (0, 0))
-        # Draw signals
-        for i in range(noOfSignals):
-            # Active pair signals display green or yellow, inactive show red.
-            if i in pairMapping[activePair]:
-                if signals[i].green > 0:
-                    signals[i].signalText = signals[i].green
-                    screen.blit(greenSignal, signalCoods[i])
-                elif signals[i].yellow > 0:
-                    signals[i].signalText = signals[i].yellow
-                    screen.blit(yellowSignal, signalCoods[i])
-            else:
-                if signals[i].red <= 10:
-                    signals[i].signalText = signals[i].red
+            screen.blit(background, (0, 0))
+            # Render signals for each index
+            for i in range(noOfSignals):
+                # For signals that belong to the active pair, display their green or yellow timer.
+                if i in pairMapping[activePair]:
+                    if signals[i].green > 0:
+                        signals[i].signalText = signals[i].green
+                        screen.blit(greenSignal, signalCoods[i])
+                    elif signals[i].yellow > 0:
+                        signals[i].signalText = signals[i].yellow
+                        screen.blit(yellowSignal, signalCoods[i])
                 else:
-                    signals[i].signalText = "---"
-                screen.blit(redSignal, signalCoods[i])
-            textRendered = font.render(str(signals[i].signalText), True, white, black)
-            screen.blit(textRendered, signalTimerCoods[i])
-        # Draw vehicles
-        for vehicle in simulation:
-            screen.blit(vehicle.image, (vehicle.x, vehicle.y))
-            vehicle.move()
-        pygame.display.update()
+                    # Inactive signals display red.
+                    if signals[i].red <= 10:
+                        signals[i].signalText = signals[i].red
+                    else:
+                        signals[i].signalText = "---"
+                    screen.blit(redSignal, signalCoods[i])
+                textRendered = font.render(str(signals[i].signalText), True, white, black)
+                screen.blit(textRendered, signalTimerCoods[i])
+            # Update and draw vehicles.
+            for vehicle in simulation:
+                vehicle.move()
+                screen.blit(vehicle.image, (vehicle.x, vehicle.y))
+
+            pygame.display.update()
+
+# ------------------------------
+# LAUNCH THE SIMULATION
+# ------------------------------
 
 if __name__ == '__main__':
     image_uploader()
