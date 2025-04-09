@@ -93,6 +93,3 @@ def vehicle_counter():
     cv2.waitKey(3000)
     cv2.destroyAllWindows()
 
-
-image_uploader()
-vehicle_counter()
