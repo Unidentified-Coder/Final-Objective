@@ -36,7 +36,7 @@ currentPhase = "green"  # will be updated within the signal cycle
 directionNumbers = {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
 
 # Vehicle speeds and starting coordinates
-speeds = {'car': 2.25, 'bus': 1.8, 'truck': 1.8, 'bike': 2.5}
+speeds = {'car': 2, 'bus': 1.8, 'truck': 1, 'bike': 2.5}
 x = {
     'right': [0, 0, 0],
     'down': [755, 727, 697],
@@ -129,92 +129,81 @@ class Vehicle(pygame.sprite.Sprite):
     def render(self, screen):
         screen.blit(self.image, (self.x, self.y))
 
-    def gapAvailable(self):
-        """Check if the gap to the preceding vehicle is sufficient.
-           Returns True if no vehicle ahead or gap >= movingGap; otherwise False.
-        """
+    def safe_to_move(self):
         if self.index == 0:
-            return True  # first vehicle in lane—nothing ahead
-        # Get the preceding vehicle in the same lane & direction
+            return self.speed  # No vehicle ahead, move freely
+        
         prev = vehicles[self.direction][self.lane][self.index - 1]
-        if self.direction == 'right':
-            gap = prev.x - (self.x + self.image.get_rect().width)
-        elif self.direction == 'left':
-            gap = self.x - (prev.x + prev.image.get_rect().width)
-        elif self.direction == 'down':
-            gap = prev.y - (self.y + self.image.get_rect().height)
-        elif self.direction == 'up':
-            gap = self.y - (prev.y + prev.image.get_rect().height)
-        return gap >= movingGap
+        if self.direction in ['right', 'left']:
+            my_width = self.image.get_width()
+            prev_width = prev.image.get_width()
+            if self.direction == 'right':
+                max_pos = prev.x - movingGap - my_width
+                return max(0, min(self.speed, max_pos - self.x))
+            else:  # left
+                max_pos = prev.x + prev_width + movingGap
+                return max(0, min(self.speed, self.x - max_pos))
+        else:
+            my_height = self.image.get_height()
+            prev_height = prev.image.get_height()
+            if self.direction == 'down':
+                max_pos = prev.y - movingGap - my_height
+                return max(0, min(self.speed, max_pos - self.y))
+            else:  # up
+                max_pos = prev.y + prev_height + movingGap
+                return max(0, min(self.speed, self.y - max_pos))
+
 
     def move(self):
         global currentPhase
-        
-        # Determine if this vehicle's direction is currently active (its signal is controlled by activePair)
         activeDirections = [directionNumbers[idx] for idx in pairMapping[activePair]]
-        # For vehicles in inactive directions, phase is considered "red"
-        phase = currentPhase if (self.direction in activeDirections) else "red"
-        
-        # --- BEFORE THE INTERSECTION (has not yet crossed) ---
-        if self.crossed == 0:
-            # If the phase is green, the vehicle is allowed to cross.
-            if phase == "green":
-                # If gap allows, move forward.
-                if self.gapAvailable():
-                    self.advance()
-                # Check if we now cross the stop line. (For each direction, use the appropriate coordinate.)
-                if self.direction == 'right' and (self.x + self.image.get_rect().width >= stopLines['right']):
-                    self.crossed = 1
-                elif self.direction == 'down' and (self.y + self.image.get_rect().height >= stopLines['down']):
-                    self.crossed = 1
-                elif self.direction == 'left' and (self.x <= stopLines['left']):
-                    self.crossed = 1
-                elif self.direction == 'up' and (self.y <= stopLines['up']):
-                    self.crossed = 1
-                    
-            # For red or yellow phases, the vehicle should approach the stop line but not cross.
-            else:
-                # Move forward only if not already at (or past) the stop line.
-                if self.direction == 'right':
-                    if self.x + self.image.get_rect().width < stopLines['right']:
-                        if self.gapAvailable():
-                            self.advance()
-                        # Clamp the position so that it does not cross the stop line.
-                        if self.x + self.image.get_rect().width > stopLines['right']:
-                            self.x = stopLines['right'] - self.image.get_rect().width
-                elif self.direction == 'down':
-                    if self.y + self.image.get_rect().height < stopLines['down']:
-                        if self.gapAvailable():
-                            self.advance()
-                        if self.y + self.image.get_rect().height > stopLines['down']:
-                            self.y = stopLines['down'] - self.image.get_rect().height
-                elif self.direction == 'left':
-                    if self.x > stopLines['left']:
-                        if self.gapAvailable():
-                            self.advance()
-                        if self.x < stopLines['left']:
-                            self.x = stopLines['left']
-                elif self.direction == 'up':
-                    if self.y > stopLines['up']:
-                        if self.gapAvailable():
-                            self.advance()
-                        if self.y < stopLines['up']:
-                            self.y = stopLines['up']
-        else:
-            # --- INSIDE THE INTERSECTION ---
-            # If the vehicle has already crossed, it continues moving regardless of signal.
-            self.advance()
+        phase = currentPhase if self.direction in activeDirections else "red"
 
-    def advance(self):
-        """Advance the vehicle by its speed along its direction."""
+        speed_to_use = self.safe_to_move()
+
+        if self.crossed == 0:
+            if phase == "green":
+                self.advance(speed_to_use)
+                if self.direction == 'right' and self.x + self.image.get_width() >= stopLines['right']:
+                    self.crossed = 1
+                elif self.direction == 'down' and self.y + self.image.get_height() >= stopLines['down']:
+                    self.crossed = 1
+                elif self.direction == 'left' and self.x <= stopLines['left']:
+                    self.crossed = 1
+                elif self.direction == 'up' and self.y <= stopLines['up']:
+                    self.crossed = 1
+            else:
+                # Approaching red/yellow — stop at the line
+                if self.direction == 'right' and self.x + self.image.get_width() < stopLines['right']:
+                    self.advance(speed_to_use)
+                    if self.x + self.image.get_width() > stopLines['right']:
+                        self.x = stopLines['right'] - self.image.get_width()
+                elif self.direction == 'down' and self.y + self.image.get_height() < stopLines['down']:
+                    self.advance(speed_to_use)
+                    if self.y + self.image.get_height() > stopLines['down']:
+                        self.y = stopLines['down'] - self.image.get_height()
+                elif self.direction == 'left' and self.x > stopLines['left']:
+                    self.advance(speed_to_use)
+                    if self.x < stopLines['left']:
+                        self.x = stopLines['left']
+                elif self.direction == 'up' and self.y > stopLines['up']:
+                    self.advance(speed_to_use)
+                    if self.y < stopLines['up']:
+                        self.y = stopLines['up']
+        else:
+            # Already crossed — keep going
+            self.advance(speed_to_use)
+
+
+    def advance(self, speed):
         if self.direction == 'right':
-            self.x += self.speed
+            self.x += speed
         elif self.direction == 'down':
-            self.y += self.speed
+            self.y += speed
         elif self.direction == 'left':
-            self.x -= self.speed
+            self.x -= speed
         elif self.direction == 'up':
-            self.y -= self.speed
+            self.y -= speed
 
 # ------------------------------
 # SIGNAL MANAGEMENT & VEHICLE GENERATION
