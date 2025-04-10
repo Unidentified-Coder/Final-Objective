@@ -36,7 +36,7 @@ currentPhase = "green"  # will be updated within the signal cycle
 directionNumbers = {0: 'right', 1: 'down', 2: 'left', 3: 'up'}
 
 # Vehicle speeds and starting coordinates
-speeds = {'car': 2, 'bus': 1.8, 'truck': 1, 'bike': 2.5}
+speeds = {'car': 2, 'bus': 1.8, 'truck': 1.8, 'bike': 2.5}
 x = {
     'right': [0, 0, 0],
     'down': [755, 727, 697],
