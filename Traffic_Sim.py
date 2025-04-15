@@ -187,7 +187,7 @@ class Vehicle(pygame.sprite.Sprite):
             # Already crossed — keep going
             self.advance(speed_to_use)
 
-
+    # vehicle movement directions
     def advance(self, speed):
         if self.direction == 'right':
             self.x += speed
@@ -286,6 +286,7 @@ class Main:
         self.run()
 
     def run(self):
+        # window size spawn when opened 
         black = (0, 0, 0)
         white = (255, 255, 255)
         screenWidth = 1400
