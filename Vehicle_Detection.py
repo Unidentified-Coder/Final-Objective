@@ -90,6 +90,6 @@ def vehicle_counter():
     cv2.imshow('Detected Vehicles', img)
 
     # release the contents by freeing up memory used in operation 
-    cv2.waitKey(3000)
+    cv2.waitKey(0)
     cv2.destroyAllWindows()
 

@@ -213,27 +213,46 @@ def initializeSignals():
 
 def repeat():
     global activePair, currentPhase
-    # For active pair directions, set them to a starting green phase.
+
+    # Count waiting vehicles in the active directions (not crossed yet)
+    def count_waiting_vehicles(directions):
+        count = 0
+        for direction in directions:
+            for lane in vehicles[direction]:
+                for v in vehicles[direction][lane]:
+                    if v.crossed == 0:
+                        count += 1
+        return count
+
+    # Get the active and inactive directions
+    activeDirections = [directionNumbers[idx] for idx in pairMapping[activePair]]
+    inactivePair = 1 - activePair
+
+    # Count vehicles and compute green time (minimum 5 sec, +1 per 2 vehicles)
+    waitingVehicles = count_waiting_vehicles(activeDirections)
+    greenTime = max(5, 5 + waitingVehicles // 2)  # You can tweak the formula if needed
+
+    # Assign signal times
     for idx in pairMapping[activePair]:
-        signals[idx].green = defaultGreen[idx]
+        signals[idx].green = greenTime
         signals[idx].yellow = defaultYellow
         signals[idx].red = 0
-    # For the inactive pair, force red.
-    inactivePair = 1 - activePair
+
     for idx in pairMapping[inactivePair]:
         signals[idx].red = defaultRed
         signals[idx].green = 0
         signals[idx].yellow = 0
 
-    # different phases for the lights
+    # Green phase
     currentPhase = "green"
-    t = defaultGreen[pairMapping[activePair][0]]
+    t = greenTime
     while t > 0:
         for idx in pairMapping[activePair]:
             signals[idx].green = t
         time.sleep(1)
         t -= 1
 
+    # Yellow phase
     currentPhase = "yellow"
     t = defaultYellow
     for idx in pairMapping[activePair]:
@@ -245,17 +264,17 @@ def repeat():
         time.sleep(1)
         t -= 1
 
-    # End of active phase: reset active pair to defaults (red)
+    # End of active phase: reset to default
     for idx in pairMapping[activePair]:
         signals[idx].red = defaultRed
         signals[idx].green = defaultGreen[idx]
         signals[idx].yellow = defaultYellow
 
-    # Switch active pair; the new active pair will have its phase set when its cycle begins.
+    # Switch to the other pair
     activePair = inactivePair
-    # Set currentPhase for new active pair as green for the next cycle.
     currentPhase = "green"
-    repeat()  # Recursively continue the cycle.
+    repeat()  # Recursively continue the cycle
+
 
 def generateVehicles():
     while True:
