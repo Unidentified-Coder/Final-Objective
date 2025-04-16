@@ -118,13 +118,13 @@ class Vehicle(pygame.sprite.Sprite):
             y[direction][lane] += delta
             
         simulation.add(self)
-
+    # Allows vehicles to be drawn on simulation
     def render(self, screen):
         screen.blit(self.image, (self.x, self.y))
 
     def safe_to_move(self):
         if self.index == 0:
-            return self.speed  # No vehicle ahead, move freely
+            return self.speed  # if no vehicle is infront return to assigned speed
         
         prev = vehicles[self.direction][self.lane][self.index - 1]
         if self.direction in ['right', 'left']:
@@ -230,7 +230,7 @@ def repeat():
 
     # Count vehicles and compute green time (minimum 5 sec, +1 per 2 vehicles)
     waitingVehicles = count_waiting_vehicles(activeDirections)
-    greenTime = max(5, 5 + waitingVehicles // 2)  # You can tweak the formula if needed
+    greenTime = max(5, 5 + waitingVehicles // 2)  
 
     # Assign signal times
     for idx in pairMapping[activePair]:
@@ -275,7 +275,7 @@ def repeat():
     currentPhase = "green"
     repeat()  # Recursively continue the cycle
 
-
+                                                                                            
 def generateVehicles():
     while True:
         # random number between the 4 vehicles 
